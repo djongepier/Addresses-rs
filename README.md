@@ -81,12 +81,13 @@ reviews and is responsible for accepted changes.
 ## Build downloads
 
 GitHub Actions builds release executables for Windows x86_64 and Linux x86_64
-when a version tag such as `v0.5.0` is pushed. Download the platform-specific
-artifact from that workflow run's **Artifacts** section. The Linux executable
-requires the system libraries used by GPUI and is not a self-contained
-installer. A separate workflow measures test coverage and uploads it to
-Codecov when the repository is enabled there and its upload token is configured
-as the GitHub Actions secret `CODECOV_TOKEN`.
+when a version tag such as `v0.5.0` is pushed. Each build creates or updates the
+tagged GitHub Release and attaches `addresses-windows-x86_64.zip` and
+`addresses-linux-x86_64.zip`. Download the matching archive from the release's
+**Assets** section. The Linux executable requires the system libraries used by
+GPUI and is not a self-contained installer. A separate workflow measures test
+coverage and uploads it to Codecov when the repository is enabled there and its
+upload token is configured as the GitHub Actions secret `CODECOV_TOKEN`.
 
 ## Screen layout
 
