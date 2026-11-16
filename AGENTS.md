@@ -20,3 +20,6 @@
 - Blocking code is acceptable when it does not make the GUI unresponsive.
 - If work would noticeably block the GUI, use asynchronous or background execution, choosing the least complex approach that keeps the interface responsive.
 - This is a desktop application, not a website; do not introduce web-oriented architecture without a clear need.
+
+## Documentation
+- Update the README.md if applicable because of implemented features.

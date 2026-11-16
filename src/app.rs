@@ -2,17 +2,18 @@
 // SPDX-License-Identifier: MIT
 // See LICENSE in the project root for license information.
 
-use std::path::PathBuf;
+use std::{collections::BTreeSet, path::PathBuf};
 
 use addresses_rs::{
     database::{AddressBook, Contact, Database, LabeledValue, PostalAddress},
     settings::AppSettings,
 };
 use anyhow::Context as _;
-use gpui::{AppContext as _, Context, Entity, Window};
+use gpui::{AppContext as _, Context, Entity, Pixels, ScrollHandle, Window};
 
 use crate::text_field::TextField;
 
+mod contact_import;
 mod database_workflow;
 mod ui;
 
@@ -96,6 +97,14 @@ pub(crate) struct AddressBookApp {
     address_books: Vec<AddressBook>,
     selected_address_book: Option<i64>,
     contacts: Vec<Contact>,
+    selected_contact_ids: BTreeSet<i64>,
+    confirm_delete_selection: bool,
+    show_move_contact_targets: bool,
+    manage_address_books: bool,
+    confirm_delete_address_book: Option<i64>,
+    import_preview: Option<contact_import::ContactImportPreview>,
+    content_scroll_handle: ScrollHandle,
+    scrollbar_drag_offset: Option<Pixels>,
     search_field: Entity<TextField>,
     address_book_name_field: Option<Entity<TextField>>,
     editor: Option<ContactEditor>,
@@ -119,6 +128,14 @@ impl AddressBookApp {
             address_books: Vec::new(),
             selected_address_book: None,
             contacts: Vec::new(),
+            selected_contact_ids: BTreeSet::new(),
+            confirm_delete_selection: false,
+            show_move_contact_targets: false,
+            manage_address_books: false,
+            confirm_delete_address_book: None,
+            import_preview: None,
+            content_scroll_handle: ScrollHandle::new(),
+            scrollbar_drag_offset: None,
             search_field,
             address_book_name_field: None,
             editor: None,
@@ -145,6 +162,9 @@ impl AddressBookApp {
         let Some(database) = self.database.as_ref() else {
             self.contacts.clear();
             self.address_books.clear();
+            self.selected_contact_ids.clear();
+            self.confirm_delete_selection = false;
+            self.show_move_contact_targets = false;
             return;
         };
 
@@ -157,9 +177,25 @@ impl AddressBookApp {
                     self.selected_address_book = None;
                 }
                 self.address_books = address_books;
+                if self
+                    .confirm_delete_address_book
+                    .is_some_and(|id| !self.address_books.iter().any(|book| book.id == id))
+                {
+                    self.confirm_delete_address_book = None;
+                }
                 let query = self.search_field.read(cx).content().to_owned();
                 match database.search_contacts(self.selected_address_book, &query) {
                     Ok(contacts) => {
+                        let visible_contact_ids = contacts
+                            .iter()
+                            .map(|contact| contact.id)
+                            .collect::<BTreeSet<_>>();
+                        self.selected_contact_ids
+                            .retain(|id| visible_contact_ids.contains(id));
+                        if self.selected_contact_ids.is_empty() {
+                            self.confirm_delete_selection = false;
+                            self.show_move_contact_targets = false;
+                        }
                         self.contacts = contacts;
                         if self
                             .status_message
@@ -192,6 +228,7 @@ impl AddressBookApp {
     fn select_address_book(&mut self, address_book_id: Option<i64>, cx: &mut Context<Self>) {
         self.selected_address_book = address_book_id;
         self.editor = None;
+        self.show_move_contact_targets = false;
         self.refresh_contacts(cx);
     }
 

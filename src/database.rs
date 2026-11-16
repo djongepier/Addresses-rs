@@ -259,11 +259,18 @@ impl Database {
             .context("Could not count addressbooks")
     }
 
-    /// Removes an addressbook and its contacts in one SQLite cascade.
+    /// Removes an addressbook only when it has no contacts.
     pub fn delete_address_book(&self, id: i64) -> Result<bool> {
         let deleted = self
             .connection
-            .execute("DELETE FROM address_books WHERE id = ?1", [id])
+            .execute(
+                "DELETE FROM address_books
+                 WHERE id = ?1
+                   AND NOT EXISTS (
+                       SELECT 1 FROM contacts WHERE address_book_id = ?1
+                   )",
+                [id],
+            )
             .with_context(|| format!("Could not delete addressbook {id}"))?;
         Ok(deleted != 0)
     }
@@ -282,6 +289,34 @@ impl Database {
             )
             .context("Could not save contact. Check that the selected addressbook still exists.")?;
         Ok(self.connection.last_insert_rowid())
+    }
+
+    /// Imports contacts in one transaction so a failed batch leaves no partial import.
+    pub fn add_contacts(&self, address_book_id: i64, contacts: &[ContactFields]) -> Result<usize> {
+        let transaction = self
+            .connection
+            .unchecked_transaction()
+            .context("Could not start contact import")?;
+        {
+            let mut statement = transaction
+                .prepare(
+                    "INSERT INTO contacts
+                        (address_book_id, display_name, fields_json)
+                     VALUES (?1, ?2, ?3)",
+                )
+                .context("Could not prepare contact import")?;
+            for fields in contacts {
+                let fields_json =
+                    serde_json::to_string(fields).context("Could not encode imported contact")?;
+                statement
+                    .execute(params![address_book_id, fields.display_name(), fields_json])
+                    .context("Could not save an imported contact")?;
+            }
+        }
+        transaction
+            .commit()
+            .context("Could not commit imported contacts")?;
+        Ok(contacts.len())
     }
 
     /// Updates a previously loaded contact without replacing its database identity.
@@ -345,6 +380,75 @@ impl Database {
             .execute("DELETE FROM contacts WHERE id = ?1", [id])
             .with_context(|| format!("Could not delete contact {id}"))?;
         Ok(deleted != 0)
+    }
+
+    /// Deletes multiple contacts atomically, returning the number that existed.
+    pub fn delete_contacts(&self, ids: &[i64]) -> Result<usize> {
+        if ids.is_empty() {
+            return Ok(0);
+        }
+
+        let transaction = self
+            .connection
+            .unchecked_transaction()
+            .context("Could not start contact deletion")?;
+        let deleted_count = {
+            let mut statement = transaction
+                .prepare("DELETE FROM contacts WHERE id = ?1")
+                .context("Could not prepare contact deletion")?;
+            ids.iter().try_fold(0, |count, id| {
+                statement
+                    .execute([id])
+                    .map(|deleted| count + deleted)
+                    .with_context(|| format!("Could not delete contact {id}"))
+            })?
+        };
+        transaction
+            .commit()
+            .context("Could not commit contact deletion")?;
+        Ok(deleted_count)
+    }
+
+    /// Moves multiple contacts to an existing addressbook atomically.
+    pub fn move_contacts(&self, ids: &[i64], address_book_id: i64) -> Result<usize> {
+        if ids.is_empty() {
+            return Ok(0);
+        }
+
+        let transaction = self
+            .connection
+            .unchecked_transaction()
+            .context("Could not start contact move")?;
+        let address_book_exists = transaction
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM address_books WHERE id = ?1)",
+                [address_book_id],
+                |row| row.get::<_, bool>(0),
+            )
+            .context("Could not verify the destination addressbook")?;
+        if !address_book_exists {
+            bail!("The destination addressbook does not exist");
+        }
+
+        let moved_count = {
+            let mut statement = transaction
+                .prepare(
+                    "UPDATE contacts
+                     SET address_book_id = ?1
+                     WHERE id = ?2 AND address_book_id != ?1",
+                )
+                .context("Could not prepare contact move")?;
+            ids.iter().try_fold(0, |count, id| {
+                statement
+                    .execute(params![address_book_id, id])
+                    .map(|moved| count + moved)
+                    .with_context(|| format!("Could not move contact {id}"))
+            })?
+        };
+        transaction
+            .commit()
+            .context("Could not commit contact move")?;
+        Ok(moved_count)
     }
 
     /// Counts contacts, optionally within one addressbook.
@@ -441,6 +545,46 @@ mod tests {
         let database = Database::open_existing(&path)?;
         assert_eq!(database.count_address_books()?, 1);
         assert_eq!(database.count_contacts(None)?, 0);
+        Ok(())
+    }
+
+    #[test]
+    fn importing_contacts_is_atomic() -> Result<()> {
+        let database = Database::in_memory()?;
+        let address_book_id = database.create_address_book("Personal")?;
+        database.connection.execute_batch(
+            "CREATE TRIGGER reject_imported_contact
+             BEFORE INSERT ON contacts
+             WHEN NEW.display_name = 'Reject'
+             BEGIN
+                 SELECT RAISE(ABORT, 'rejected test contact');
+             END;",
+        )?;
+        let contacts = [
+            ContactFields {
+                name: ContactName {
+                    display_name: Some("Accepted".to_owned()),
+                    ..ContactName::default()
+                },
+                ..ContactFields::default()
+            },
+            ContactFields {
+                name: ContactName {
+                    display_name: Some("Reject".to_owned()),
+                    ..ContactName::default()
+                },
+                ..ContactFields::default()
+            },
+        ];
+
+        assert!(database.add_contacts(address_book_id, &contacts).is_err());
+        assert_eq!(database.count_contacts(None)?, 0);
+
+        database
+            .connection
+            .execute_batch("DROP TRIGGER reject_imported_contact;")?;
+        assert_eq!(database.add_contacts(address_book_id, &contacts)?, 2);
+        assert_eq!(database.count_contacts(Some(address_book_id))?, 2);
         Ok(())
     }
 
@@ -581,19 +725,64 @@ mod tests {
         Ok(())
     }
 
-    /// Confirms deleting an addressbook also deletes its contacts.
+    /// Confirms non-empty addressbooks cannot be deleted.
     #[test]
-    fn deleting_address_book_cascades_to_contacts() -> Result<()> {
+    fn refuses_to_delete_nonempty_address_book() -> Result<()> {
         let database = Database::in_memory()?;
         let address_book_id = database.create_address_book("Work")?;
         let mut fields = ContactFields::default();
         fields.name.given_name = Some("Grace".into());
         fields.name.family_name = Some("Hopper".into());
-        database.add_contact(address_book_id, &fields)?;
+        let contact_id = database.add_contact(address_book_id, &fields)?;
 
+        assert!(!database.delete_address_book(address_book_id)?);
+        assert_eq!(database.list_address_books()?.len(), 1);
+        assert_eq!(database.count_contacts(Some(address_book_id))?, 1);
+
+        assert!(database.delete_contact(contact_id)?);
         assert!(database.delete_address_book(address_book_id)?);
         assert!(database.list_address_books()?.is_empty());
-        assert_eq!(database.count_contacts(None)?, 0);
+        Ok(())
+    }
+
+    #[test]
+    fn deletes_multiple_contacts_atomically() -> Result<()> {
+        let database = Database::in_memory()?;
+        let address_book_id = database.create_address_book("Personal")?;
+        let mut fields = ContactFields::default();
+        fields.name.given_name = Some("Ada".into());
+        let first_id = database.add_contact(address_book_id, &fields)?;
+        fields.name.given_name = Some("Grace".into());
+        let second_id = database.add_contact(address_book_id, &fields)?;
+        fields.name.given_name = Some("Katherine".into());
+        database.add_contact(address_book_id, &fields)?;
+
+        assert_eq!(database.delete_contacts(&[first_id, second_id])?, 2);
+        assert_eq!(database.count_contacts(Some(address_book_id))?, 1);
+        assert_eq!(database.delete_contacts(&[first_id, second_id])?, 0);
+        assert_eq!(database.delete_contacts(&[])?, 0);
+        Ok(())
+    }
+
+    #[test]
+    fn moves_multiple_contacts_between_address_books() -> Result<()> {
+        let database = Database::in_memory()?;
+        let source_id = database.create_address_book("Personal")?;
+        let destination_id = database.create_address_book("Work")?;
+        let mut fields = ContactFields::default();
+        fields.name.given_name = Some("Ada".into());
+        let first_id = database.add_contact(source_id, &fields)?;
+        fields.name.given_name = Some("Grace".into());
+        let second_id = database.add_contact(source_id, &fields)?;
+
+        assert_eq!(
+            database.move_contacts(&[first_id, second_id], destination_id)?,
+            2
+        );
+        assert_eq!(database.count_contacts(Some(source_id))?, 0);
+        assert_eq!(database.count_contacts(Some(destination_id))?, 2);
+        assert_eq!(database.move_contacts(&[first_id], destination_id)?, 0);
+        assert!(database.move_contacts(&[first_id], i64::MAX).is_err());
         Ok(())
     }
 

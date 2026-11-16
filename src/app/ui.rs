@@ -2,11 +2,23 @@
 // SPDX-License-Identifier: MIT
 // See LICENSE in the project root for license information.
 
-use gpui::{Context, Render, Window, WindowAppearance, div, prelude::*, px, rgb};
+use std::sync::{Arc, LazyLock};
+
+use gpui::{
+    Context, Image, ImageFormat, MouseDownEvent, MouseMoveEvent, MouseUpEvent, Render, Window,
+    WindowAppearance, canvas, div, img, point, prelude::*, px, rgb,
+};
 
 use super::{AddressBookApp, Page};
 
 mod contacts;
+
+static SIDEBAR_LOGO: LazyLock<Arc<Image>> = LazyLock::new(|| {
+    Arc::new(Image::from_bytes(
+        ImageFormat::Png,
+        include_bytes!("../../assets/addresses-icon.png").to_vec(),
+    ))
+});
 
 #[derive(Clone, Copy)]
 struct Theme {
@@ -84,17 +96,7 @@ impl AddressBookApp {
                     .flex()
                     .items_center()
                     .gap_3()
-                    .child(
-                        div()
-                            .size(px(36.))
-                            .flex()
-                            .items_center()
-                            .justify_center()
-                            .rounded_lg()
-                            .bg(rgb(theme.accent))
-                            .text_color(rgb(0xffffff))
-                            .child("A"),
-                    )
+                    .child(img(SIDEBAR_LOGO.clone()).w(px(36.)).h(px(36.)))
                     .child(
                         div()
                             .flex()
@@ -436,52 +438,182 @@ impl AddressBookApp {
             )
             .child(
                 div()
-                    .id("content-panel")
+                    .id("content-panel-wrapper")
                     .flex_1()
                     .w_full()
-                    .flex()
-                    .flex_col()
-                    .when(page == Page::Contacts && self.editor.is_some(), |this| {
-                        this.overflow_y_scroll()
-                    })
-                    .gap_4()
-                    .p_6()
-                    .rounded_lg()
-                    .border_1()
-                    .border_color(rgb(theme.panel_border))
-                    .bg(rgb(theme.panel))
-                    .when(show_status, |this| {
-                        this.child(
-                            div()
-                                .p_3()
-                                .rounded_md()
-                                .text_sm()
-                                .text_color(rgb(status_color))
-                                .child(status_text),
-                        )
-                    })
-                    .when(page == Page::Home, |this| {
-                        this.child(self.render_home_panel(theme, cx))
-                    })
-                    .when(page == Page::Settings, |this| {
-                        this.child(self.render_settings_panel(theme, cx))
-                    })
+                    .relative()
+                    .child(
+                        div()
+                            .id("content-panel")
+                            .absolute()
+                            .top_0()
+                            .bottom_0()
+                            .left_0()
+                            .right_0()
+                            .flex()
+                            .flex_col()
+                            .when(page == Page::Contacts, |this| {
+                                this.overflow_y_scroll()
+                                    .scrollbar_width(px(8.))
+                                    .track_scroll(&self.content_scroll_handle)
+                            })
+                            .gap_4()
+                            .p_6()
+                            .rounded_lg()
+                            .border_1()
+                            .border_color(rgb(theme.panel_border))
+                            .bg(rgb(theme.panel))
+                            .when(show_status, |this| {
+                                this.child(
+                                    div()
+                                        .p_3()
+                                        .rounded_md()
+                                        .text_sm()
+                                        .text_color(rgb(status_color))
+                                        .child(status_text),
+                                )
+                            })
+                            .when(page == Page::Home, |this| {
+                                this.child(self.render_home_panel(theme, cx))
+                            })
+                            .when(page == Page::Settings, |this| {
+                                this.child(self.render_settings_panel(theme, cx))
+                            })
+                            .when(page == Page::Contacts, |this| {
+                                this.child(self.render_contacts_panel(theme, cx))
+                            })
+                            .when(page == Page::PrintLabels, |this| {
+                                this.child(
+                                    div()
+                                        .flex_1()
+                                        .flex()
+                                        .items_center()
+                                        .justify_center()
+                                        .text_sm()
+                                        .text_color(rgb(theme.muted_text))
+                                        .child(page.empty_state()),
+                                )
+                            }),
+                    )
                     .when(page == Page::Contacts, |this| {
-                        this.child(self.render_contacts_panel(theme, cx))
-                    })
-                    .when(page == Page::PrintLabels, |this| {
-                        this.child(
-                            div()
-                                .flex_1()
-                                .flex()
-                                .items_center()
-                                .justify_center()
-                                .text_sm()
-                                .text_color(rgb(theme.muted_text))
-                                .child(page.empty_state()),
-                        )
+                        this.child(self.render_content_scrollbar(theme, cx))
                     }),
             )
+    }
+
+    fn render_content_scrollbar(&self, theme: Theme, cx: &mut Context<Self>) -> impl IntoElement {
+        let viewport_bounds = self.content_scroll_handle.bounds();
+        let viewport_height = viewport_bounds.size.height;
+        let max_offset = self.content_scroll_handle.max_offset().height;
+        let track_inset = px(4.);
+        let track_height = (viewport_height - track_inset * 2.).max(px(0.));
+        let thumb_height = if viewport_height > px(0.) && max_offset > px(0.) {
+            (track_height * (viewport_height / (viewport_height + max_offset)))
+                .max(px(28.))
+                .min(track_height)
+        } else {
+            track_height
+        };
+        let thumb_range = (track_height - thumb_height).max(px(0.));
+        let scroll_progress = if max_offset > px(0.) {
+            (-self.content_scroll_handle.offset().y / max_offset).clamp(0., 1.)
+        } else {
+            0.
+        };
+        let thumb_top = track_inset + thumb_range * scroll_progress;
+        let entity = cx.entity();
+        let scroll_handle = self.content_scroll_handle.clone();
+
+        div()
+            .id("content-scrollbar")
+            .absolute()
+            .top_0()
+            .bottom_0()
+            .right_2()
+            .w(px(10.))
+            .when(max_offset > px(0.), |this| {
+                this.child(
+                    div()
+                        .absolute()
+                        .top(track_inset)
+                        .bottom(track_inset)
+                        .left(px(2.))
+                        .right(px(2.))
+                        .rounded_full()
+                        .bg(rgb(theme.content))
+                        .child(
+                            div()
+                                .id("content-scrollbar-thumb")
+                                .absolute()
+                                .top(thumb_top - track_inset)
+                                .w_full()
+                                .h(thumb_height)
+                                .rounded_full()
+                                .bg(rgb(theme.muted_text))
+                                .hover(|this| this.bg(rgb(theme.accent)))
+                                .child(
+                                    canvas(
+                                        |_, _, _| (),
+                                        move |thumb_bounds, _, window, _| {
+                                            window.on_mouse_event({
+                                                let entity = entity.clone();
+                                                move |event: &MouseDownEvent, _, _, cx| {
+                                                    if !thumb_bounds.contains(&event.position) {
+                                                        return;
+                                                    }
+                                                    entity.update(cx, |this, _| {
+                                                        this.scrollbar_drag_offset = Some(
+                                                            event.position.y
+                                                                - thumb_bounds.origin.y,
+                                                        );
+                                                    });
+                                                }
+                                            });
+                                            window.on_mouse_event({
+                                                let entity = entity.clone();
+                                                move |_: &MouseUpEvent, _, _, cx| {
+                                                    entity.update(cx, |this, _| {
+                                                        this.scrollbar_drag_offset = None;
+                                                    });
+                                                }
+                                            });
+                                            window.on_mouse_event({
+                                                let entity = entity.clone();
+                                                let scroll_handle = scroll_handle.clone();
+                                                move |event: &MouseMoveEvent, _, _, cx| {
+                                                    if !event.dragging() {
+                                                        return;
+                                                    }
+                                                    let Some(drag_offset) =
+                                                        entity.read(cx).scrollbar_drag_offset
+                                                    else {
+                                                        return;
+                                                    };
+                                                    if thumb_range == px(0.) {
+                                                        return;
+                                                    }
+
+                                                    let thumb_position = (event.position.y
+                                                        - viewport_bounds.origin.y
+                                                        - drag_offset
+                                                        - track_inset)
+                                                        .clamp(px(0.), thumb_range);
+                                                    let progress = thumb_position / thumb_range;
+                                                    let offset = scroll_handle.offset();
+                                                    scroll_handle.set_offset(point(
+                                                        offset.x,
+                                                        -max_offset * progress,
+                                                    ));
+                                                    cx.notify(entity.entity_id());
+                                                }
+                                            });
+                                        },
+                                    )
+                                    .size_full(),
+                                ),
+                        ),
+                )
+            })
     }
 }
 

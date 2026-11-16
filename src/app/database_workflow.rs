@@ -218,6 +218,11 @@ impl AddressBookApp {
                 self.active_page = Page::Home;
                 self.status_message = None;
                 self.contacts.clear();
+                self.selected_contact_ids.clear();
+                self.confirm_delete_selection = false;
+                self.show_move_contact_targets = false;
+                self.manage_address_books = false;
+                self.confirm_delete_address_book = None;
 
                 if let Err(error) = self.settings.save() {
                     eprintln!("Database opened, but settings could not be saved: {error:#}");
