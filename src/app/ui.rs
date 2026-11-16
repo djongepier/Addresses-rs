@@ -292,9 +292,38 @@ impl AddressBookApp {
                 )
                 .child(
                     div()
-                        .text_sm()
-                        .text_color(rgb(theme.muted_text))
-                        .child("Duplicate review will be available when duplicate matching is implemented."),
+                        .flex()
+                        .items_center()
+                        .justify_between()
+                        .gap_3()
+                        .child(
+                            div()
+                                .text_sm()
+                                .text_color(rgb(theme.muted_text))
+                                .child("Review likely duplicate contacts across all address books."),
+                        )
+                        .when(self.contact_count > 0, |this| {
+                            this.child(
+                                div()
+                                    .id("home-review-duplicates-button")
+                                    .px_3()
+                                    .py_2()
+                                    .rounded_md()
+                                    .border_1()
+                                    .border_color(rgb(theme.panel_border))
+                                    .text_sm()
+                                    .when(self.is_loading, |this| this.opacity(0.6))
+                                    .on_click(cx.listener(|this, _, _, cx| {
+                                        if this.is_loading {
+                                            return;
+                                        }
+                                        this.active_page = Page::Contacts;
+                                        this.refresh_contacts(cx);
+                                        this.open_duplicate_review(cx);
+                                    }))
+                                    .child("Review duplicates"),
+                            )
+                        }),
                 )
                 .child(
                     div()

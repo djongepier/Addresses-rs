@@ -218,6 +218,8 @@ impl AddressBookApp {
                 self.active_page = Page::Home;
                 self.status_message = None;
                 self.contacts.clear();
+                self.show_duplicate_review = false;
+                self.duplicate_matches.clear();
                 self.selected_contact_ids.clear();
                 self.confirm_delete_selection = false;
                 self.show_move_contact_targets = false;

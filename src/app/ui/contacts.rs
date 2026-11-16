@@ -6,10 +6,89 @@ use addresses_rs::database::{AddressBook, Contact, ContactFields};
 use anyhow::Result;
 use gpui::{Context, Entity, div, prelude::*, px, rgb};
 
+use super::super::duplicate_matching::{DuplicateMatch, find_duplicate_matches};
 use super::{AddressBookApp, Theme};
 use crate::text_field::TextField;
 
 impl AddressBookApp {
+    pub(super) fn open_duplicate_review(&mut self, cx: &mut Context<Self>) {
+        if self.is_loading {
+            return;
+        }
+        if self.show_duplicate_review {
+            self.show_duplicate_review = false;
+            self.status_message = None;
+            cx.notify();
+            return;
+        }
+
+        let Some(database_path) = self.database_path.clone() else {
+            self.set_status("Open a database before reviewing duplicate contacts.", true);
+            cx.notify();
+            return;
+        };
+
+        let executor = cx.background_executor().clone();
+        self.is_loading = true;
+        self.show_duplicate_review = true;
+        self.duplicate_matches.clear();
+        self.selected_contact_ids.clear();
+        self.confirm_delete_selection = false;
+        self.show_move_contact_targets = false;
+        self.status_message = None;
+        cx.notify();
+
+        cx.spawn(async move |this, cx| {
+            let result = executor
+                .spawn(async move {
+                    let database = addresses_rs::database::Database::open_existing(database_path)?;
+                    let contacts = database.search_contacts(None, "")?;
+                    Ok(find_duplicate_matches(&contacts))
+                })
+                .await;
+
+            if let Err(error) = this.update(cx, |this, cx| {
+                this.finish_duplicate_review(result, cx);
+            }) {
+                eprintln!("Could not update the app after duplicate review: {error:#}");
+            }
+        })
+        .detach();
+    }
+
+    fn finish_duplicate_review(
+        &mut self,
+        result: Result<Vec<DuplicateMatch>>,
+        cx: &mut Context<Self>,
+    ) {
+        self.is_loading = false;
+        match result {
+            Ok(matches) => {
+                self.duplicate_matches = matches;
+                self.status_message = None;
+            }
+            Err(error) => {
+                eprintln!("Could not find likely duplicate contacts: {error:#}");
+                self.show_duplicate_review = false;
+                self.set_status(
+                    "Duplicate contacts could not be checked. Check that the database is readable and try again.",
+                    true,
+                );
+            }
+        }
+        cx.notify();
+    }
+
+    fn open_duplicate_contact(
+        &mut self,
+        contact: Contact,
+        window: &mut gpui::Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.show_duplicate_review = false;
+        self.open_contact_editor(Some(contact), window, cx);
+    }
+
     pub(super) fn render_contacts_panel(
         &self,
         theme: Theme,
@@ -142,6 +221,28 @@ impl AddressBookApp {
                                         }))
                                         .child("Import CSV"),
                                 )
+                                .when(!self.address_books.is_empty(), |this| {
+                                    this.child(
+                                    div()
+                                        .id("review-duplicates-button")
+                                        .px_3()
+                                        .py_2()
+                                        .rounded_md()
+                                        .border_1()
+                                        .border_color(rgb(theme.panel_border))
+                                        .text_sm()
+                                        .text_color(rgb(theme.content_text))
+                                        .when(self.is_loading, |this| this.opacity(0.6))
+                                        .on_click(cx.listener(|this, _, _, cx| {
+                                            this.open_duplicate_review(cx);
+                                        }))
+                                        .child(if self.show_duplicate_review {
+                                            "Show contacts"
+                                        } else {
+                                            "Review duplicates"
+                                        }),
+                                    )
+                                })
                             }),
                     ),
             )
@@ -189,8 +290,16 @@ impl AddressBookApp {
                         ),
                 )
             })
-            .child(div().flex().flex_wrap().gap_2()            .children(address_book_filters))
-            .when(self.manage_address_books, |this| {
+            .when(!self.show_duplicate_review, |this| {
+                this.child(
+                    div()
+                        .flex()
+                        .flex_wrap()
+                        .gap_2()
+                        .children(address_book_filters),
+                )
+            })
+            .when(self.manage_address_books && !self.show_duplicate_review, |this| {
                 this.child(self.render_address_book_manager(theme, cx))
             })
             .when(self.address_books.is_empty(), |this| {
@@ -227,53 +336,211 @@ impl AddressBookApp {
                 )
             })
             .when(!self.address_books.is_empty(), |this| {
+                this
+                    .when(!self.show_duplicate_review, |this| {
+                        this.child(
+                            div()
+                                .id("contact-search")
+                                .child(self.search_field.clone()),
+                        )
+                    })
+                    .when(
+                        !self.show_duplicate_review && !self.selected_contact_ids.is_empty(),
+                        |this| this.child(self.render_contact_bulk_actions(theme, cx)),
+                    )
+                    .when(
+                        !self.show_duplicate_review
+                            && self.show_move_contact_targets
+                            && !self.selected_contact_ids.is_empty(),
+                        |this| this.child(self.render_contact_move_targets(theme, cx)),
+                    )
+                    .when(self.show_duplicate_review, |this| {
+                        this.child(self.render_duplicate_review(theme, cx))
+                    })
+                    .when(!self.show_duplicate_review, |this| {
+                        this.child(
+                            div()
+                                .id("contact-results")
+                                .flex_none()
+                                .flex()
+                                .flex_col()
+                                .gap_2()
+                                .children(
+                                    self.contacts
+                                        .iter()
+                                        .map(|contact| {
+                                            self.render_contact_item(contact, theme, cx)
+                                        })
+                                        .collect::<Vec<_>>(),
+                                )
+                                .when(self.contacts.is_empty(), |this| {
+                                    let search_is_empty =
+                                        self.search_field.read(cx).content().trim().is_empty();
+                                    let empty_message = if search_is_empty {
+                                        "No contacts in this address book yet. Add a contact to get started."
+                                    } else {
+                                        "No contacts match your search."
+                                    };
+                                    this.child(
+                                        div()
+                                            .flex_1()
+                                            .flex()
+                                            .items_center()
+                                            .justify_center()
+                                            .text_sm()
+                                            .text_color(rgb(theme.muted_text))
+                                            .child(empty_message),
+                                    )
+                                }),
+                        )
+                    })
+            })
+            .into_any_element()
+    }
+
+    fn render_duplicate_review(
+        &self,
+        theme: Theme,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement + use<> {
+        let match_count = self.duplicate_matches.len();
+        div()
+            .id("duplicate-review")
+            .flex()
+            .flex_col()
+            .gap_3()
+            .child(
+                div()
+                    .text_sm()
+                    .text_color(rgb(theme.muted_text))
+                    .child(
+                        "Potential matches are found across all address books using shared email addresses or phone numbers, exact names, and similar names with a shared organization or postal address. Matches are suggestions only; contacts are never changed automatically.",
+                    ),
+            )
+            .when(self.is_loading, |this| {
                 this.child(
                     div()
-                        .id("contact-search")
-                        .child(self.search_field.clone()),
+                        .text_sm()
+                        .text_color(rgb(theme.muted_text))
+                        .child("Checking contacts for likely duplicates…"),
                 )
-                .when(!self.selected_contact_ids.is_empty(), |this| {
-                    this.child(self.render_contact_bulk_actions(theme, cx))
-                })
-                .when(
-                    self.show_move_contact_targets && !self.selected_contact_ids.is_empty(),
-                    |this| this.child(self.render_contact_move_targets(theme, cx)),
-                )
-                .child(
+            })
+            .when(!self.is_loading && match_count == 0, |this| {
+                this.child(
                     div()
-                        .id("contact-results")
-                        .flex_none()
-                        .flex()
-                        .flex_col()
-                        .gap_2()
-                        .children(
-                            self.contacts
-                                .iter()
-                                .map(|contact| self.render_contact_item(contact, theme, cx))
-                                .collect::<Vec<_>>(),
-                        )
-                        .when(self.contacts.is_empty(), |this| {
-                            let search_is_empty =
-                                self.search_field.read(cx).content().trim().is_empty();
-                            let empty_message = if search_is_empty {
-                                "No contacts in this address book yet. Add a contact to get started."
-                            } else {
-                                "No contacts match your search."
-                            };
-                            this.child(
-                                div()
-                                    .flex_1()
-                                    .flex()
-                                    .items_center()
-                                    .justify_center()
-                                    .text_sm()
-                                    .text_color(rgb(theme.muted_text))
-                                    .child(empty_message),
-                            )
+                        .text_sm()
+                        .text_color(rgb(theme.muted_text))
+                        .child("No likely duplicate contacts found."),
+                )
+            })
+            .when(!self.is_loading && match_count > 0, |this| {
+                this.child(
+                    div()
+                        .text_sm()
+                        .child(format!("{match_count} possible duplicate pair(s) found.")),
+                )
+                .children(
+                    self.duplicate_matches
+                        .iter()
+                        .enumerate()
+                        .map(|(index, duplicate)| {
+                            self.render_duplicate_match(index, duplicate, theme, cx)
                         }),
                 )
             })
-            .into_any_element()
+    }
+
+    fn render_duplicate_match(
+        &self,
+        index: usize,
+        duplicate: &DuplicateMatch,
+        theme: Theme,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement + use<> {
+        div()
+            .id(("duplicate-match", index as u64))
+            .flex()
+            .flex_col()
+            .gap_2()
+            .p_3()
+            .rounded_md()
+            .border_1()
+            .border_color(rgb(theme.panel_border))
+            .child(
+                div()
+                    .text_xs()
+                    .text_color(rgb(theme.muted_text))
+                    .child(duplicate.reasons.join(" · ")),
+            )
+            .child(
+                div()
+                    .flex()
+                    .flex_wrap()
+                    .gap_3()
+                    .child(self.render_duplicate_contact(index * 2, &duplicate.first, theme, cx))
+                    .child(self.render_duplicate_contact(
+                        index * 2 + 1,
+                        &duplicate.second,
+                        theme,
+                        cx,
+                    )),
+            )
+    }
+
+    fn render_duplicate_contact(
+        &self,
+        element_id: usize,
+        contact: &Contact,
+        theme: Theme,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement + use<> {
+        let contact_to_edit = contact.clone();
+        let details = contact_card_details(&contact.fields);
+        let address_book_name = self
+            .address_books
+            .iter()
+            .find(|book| book.id == contact.address_book_id)
+            .map_or("Unknown address book", |book| book.name.as_str())
+            .to_owned();
+
+        div()
+            .id(("duplicate-contact", element_id as u64))
+            .flex_1()
+            .min_w(px(220.))
+            .flex()
+            .flex_col()
+            .gap_1()
+            .child(div().text_sm().child(contact_card_name(&contact.fields)))
+            .child(
+                div()
+                    .text_xs()
+                    .text_color(rgb(theme.muted_text))
+                    .child(address_book_name),
+            )
+            .children(details.into_iter().map(|detail| {
+                div()
+                    .text_xs()
+                    .text_color(rgb(theme.muted_text))
+                    .child(detail)
+            }))
+            .child(
+                div()
+                    .id(("edit-duplicate-contact", element_id as u64))
+                    .w(px(120.))
+                    .mt_1()
+                    .px_3()
+                    .py_2()
+                    .rounded_md()
+                    .border_1()
+                    .border_color(rgb(theme.panel_border))
+                    .text_sm()
+                    .when(self.is_loading, |this| this.opacity(0.6))
+                    .on_click(cx.listener(move |this, _, window, cx| {
+                        this.open_duplicate_contact(contact_to_edit.clone(), window, cx);
+                        cx.notify();
+                    }))
+                    .child("Edit contact"),
+            )
     }
 
     fn render_contact_import_preview(

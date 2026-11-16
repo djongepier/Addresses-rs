@@ -47,7 +47,12 @@ reviews and is responsible for accepted changes.
 - Import standard English-header Google Contacts and Outlook CSV files with a
   preview and address-book selection. Common fields are mapped into the contact
   model, and unrecognized columns are preserved. UTF-8 and UTF-16 CSV files are
-  supported; duplicate detection is not performed.
+  supported. Imports are not automatically skipped or merged when they match
+  existing contacts.
+- Review likely duplicate pairs across all address books. Matching checks
+  shared email addresses or phone numbers, exact names, and similar names with
+  a shared organization or postal address. Results are suggestions only;
+  contacts are not changed automatically.
 - Store structured contact data locally. The data model includes additional
   fields such as websites, messaging addresses, events, relationships,
   categories, and extra fields, but these are not yet exposed in the editor.
@@ -56,8 +61,7 @@ reviews and is responsible for accepted changes.
 ## Planned
 
 - Export contacts to CSV or JSON.
-- Detect likely duplicates during import and provide fuzzy matching, review,
-  and merge choices.
+- Detect likely duplicates during import and provide merge choices.
 - Select multiple contacts for export or printing.
 - Create, save, and edit address-label layouts and print them to PDF, including
   A4 dimensions, metric layout options, and common label formats. The Print
@@ -91,6 +95,7 @@ as the GitHub Actions secret `CODECOV_TOKEN`.
 Implemented:
 - Create a database on first use or open an existing one.
 - Show contact and address-book counts and the active database location.
+- Open duplicate review from the Home screen.
 
 Planned:
 - Show a duplicate count and provide contact search from the dashboard.
@@ -108,6 +113,8 @@ Implemented:
   postal code, city, and country fields, and notes.
 - Import standard Google Contacts and Outlook CSV files with preview and
   address-book selection.
+- Review potential duplicate contacts across all address books and edit either
+  contact without making automatic changes.
 
 Planned:
 - Export selected contacts to CSV or print them to PDF.

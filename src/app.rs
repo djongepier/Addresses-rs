@@ -15,6 +15,7 @@ use crate::text_field::TextField;
 
 mod contact_import;
 mod database_workflow;
+mod duplicate_matching;
 mod ui;
 
 const INITIAL_ADDRESS_BOOK: &str = "Personal";
@@ -111,6 +112,8 @@ pub(crate) struct AddressBookApp {
     selected_address_book: Option<i64>,
     contacts: Vec<Contact>,
     selected_contact_ids: BTreeSet<i64>,
+    show_duplicate_review: bool,
+    duplicate_matches: Vec<duplicate_matching::DuplicateMatch>,
     confirm_delete_selection: bool,
     show_move_contact_targets: bool,
     manage_address_books: bool,
@@ -142,6 +145,8 @@ impl AddressBookApp {
             selected_address_book: None,
             contacts: Vec::new(),
             selected_contact_ids: BTreeSet::new(),
+            show_duplicate_review: false,
+            duplicate_matches: Vec::new(),
             confirm_delete_selection: false,
             show_move_contact_targets: false,
             manage_address_books: false,
