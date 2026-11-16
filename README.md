@@ -1,8 +1,24 @@
-# Addresses
+<p align="center">
+  <img src="assets/addresses-icon.png" alt="Addresses logo" width="128">
+</p>
 
-Addresses is an offline address-book application. Its goal is to keep contact
-information in a local database that remains accessible independently of the
-application.
+<h1 align="center">Addresses</h1>
+
+<p align="center">
+  An offline-first address book for your desktop.
+</p>
+
+<p align="center">
+  <a href="https://doc.rust-lang.org/edition-guide/rust-2024/index.html"><img src="https://img.shields.io/badge/Rust-2024%20Edition-000000?logo=rust&amp;logoColor=white" alt="Rust 2024 Edition"></a>
+  <img src="https://img.shields.io/badge/MSRV-1.89%2B-orange?logo=rust&amp;logoColor=white" alt="Minimum supported Rust version 1.89">
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue.svg" alt="MIT License"></a>
+  <a href="https://www.sqlite.org/"><img src="https://img.shields.io/badge/Storage-SQLite-003B57?logo=sqlite&amp;logoColor=white" alt="SQLite storage"></a>
+</p>
+
+## About
+
+Addresses keeps contact information in a local database that remains
+accessible independently of the application.
 
 ## AI assistance
 
