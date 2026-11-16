@@ -2,9 +2,9 @@
 // SPDX-License-Identifier: MIT
 // See LICENSE in the project root for license information.
 
-use addresses_rs::database::{AddressBook, Contact, ContactFields, ContactName};
+use addresses_rs::database::{AddressBook, Contact, ContactFields};
 use anyhow::Result;
-use gpui::{Context, Entity, div, prelude::*, rgb};
+use gpui::{Context, Entity, div, prelude::*, px, rgb};
 
 use super::{AddressBookApp, Theme};
 use crate::text_field::TextField;
@@ -614,24 +614,7 @@ impl AddressBookApp {
             .find(|book| book.id == contact.address_book_id)
             .map_or("Unknown address book", |book| book.name.as_str())
             .to_owned();
-        let details = [
-            contact
-                .fields
-                .emails
-                .first()
-                .map(|value| value.value.as_str())
-                .filter(|value| !value.trim().is_empty()),
-            contact
-                .fields
-                .phones
-                .first()
-                .map(|value| value.value.as_str())
-                .filter(|value| !value.trim().is_empty()),
-        ]
-        .into_iter()
-        .flatten()
-        .collect::<Vec<_>>()
-        .join(" · ");
+        let details = contact_card_details(&contact.fields);
         let contact_to_edit = contact.clone();
 
         div()
@@ -658,13 +641,20 @@ impl AddressBookApp {
                             .flex_col()
                             .gap_1()
                             .child(div().text_lg().child(name))
-                            .child(div().text_sm().text_color(rgb(theme.muted_text)).child(
-                                if details.is_empty() {
-                                    "No additional details".to_owned()
-                                } else {
-                                    details
-                                },
-                            )),
+                            .when(details.is_empty(), |this| {
+                                this.child(
+                                    div()
+                                        .text_sm()
+                                        .text_color(rgb(theme.muted_text))
+                                        .child("No additional details"),
+                                )
+                            })
+                            .children(details.into_iter().map(|detail| {
+                                div()
+                                    .text_sm()
+                                    .text_color(rgb(theme.muted_text))
+                                    .child(detail)
+                            })),
                     )
                     .child(
                         div()
@@ -709,27 +699,234 @@ impl AddressBookApp {
                     .child(format!("Address book: {address_book_name}")),
             )
             .child(Self::render_editor_field(
-                "Display name",
+                "Display name".to_owned(),
                 editor.name.clone(),
             ))
             .child(Self::render_editor_field(
-                "Given name",
+                "Given name".to_owned(),
                 editor.given_name.clone(),
             ))
             .child(Self::render_editor_field(
-                "Family name",
+                "Family name".to_owned(),
                 editor.family_name.clone(),
             ))
             .child(Self::render_editor_field(
-                "Organization",
+                "Organization".to_owned(),
                 editor.company.clone(),
             ))
-            .child(Self::render_editor_field("Email", editor.email.clone()))
-            .child(Self::render_editor_field("Phone", editor.phone.clone()))
-            .child(Self::render_editor_field("Street", editor.street.clone()))
-            .child(Self::render_editor_field("City", editor.city.clone()))
-            .child(Self::render_editor_field("Country", editor.country.clone()))
-            .child(Self::render_editor_field("Notes", editor.notes.clone()))
+            .child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap_2()
+                    .child(
+                        div()
+                            .flex()
+                            .items_center()
+                            .justify_between()
+                            .child(div().text_sm().child("Email addresses"))
+                            .child(
+                                div()
+                                    .id("add-email-field")
+                                    .px_3()
+                                    .py_2()
+                                    .rounded_md()
+                                    .border_1()
+                                    .border_color(rgb(theme.panel_border))
+                                    .text_sm()
+                                    .on_click(cx.listener(|this, _, _, cx| {
+                                        this.add_email_field(cx);
+                                    }))
+                                    .child("Add email"),
+                            ),
+                    )
+                    .children(editor.emails.iter().enumerate().map(|(index, email)| {
+                        let label = email.label.as_deref().map_or_else(
+                            || format!("Email address {}", index + 1),
+                            |label| format!("Email ({label})"),
+                        );
+                        div()
+                            .flex()
+                            .items_center()
+                            .gap_2()
+                            .child(
+                                div()
+                                    .flex_1()
+                                    .child(Self::render_editor_field(label, email.field.clone())),
+                            )
+                            .child(
+                                div()
+                                    .id(("remove-email-field", index as u64))
+                                    .px_3()
+                                    .py_2()
+                                    .rounded_md()
+                                    .border_1()
+                                    .border_color(rgb(theme.panel_border))
+                                    .text_sm()
+                                    .on_click(cx.listener(move |this, _, _, cx| {
+                                        this.remove_email_field(index, cx);
+                                    }))
+                                    .child("Remove"),
+                            )
+                    })),
+            )
+            .child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap_2()
+                    .child(
+                        div()
+                            .flex()
+                            .items_center()
+                            .justify_between()
+                            .child(div().text_sm().child("Phone numbers"))
+                            .child(
+                                div()
+                                    .id("add-phone-field")
+                                    .px_3()
+                                    .py_2()
+                                    .rounded_md()
+                                    .border_1()
+                                    .border_color(rgb(theme.panel_border))
+                                    .text_sm()
+                                    .on_click(cx.listener(|this, _, _, cx| {
+                                        this.add_phone_field(cx);
+                                    }))
+                                    .child("Add phone"),
+                            ),
+                    )
+                    .children(editor.phones.iter().enumerate().map(|(index, phone)| {
+                        let label = phone.label.as_deref().map_or_else(
+                            || format!("Phone number {}", index + 1),
+                            |label| format!("Phone ({label})"),
+                        );
+                        div()
+                            .flex()
+                            .items_center()
+                            .gap_2()
+                            .child(
+                                div()
+                                    .flex_1()
+                                    .child(Self::render_editor_field(label, phone.field.clone())),
+                            )
+                            .child(
+                                div()
+                                    .id(("remove-phone-field", index as u64))
+                                    .px_3()
+                                    .py_2()
+                                    .rounded_md()
+                                    .border_1()
+                                    .border_color(rgb(theme.panel_border))
+                                    .text_sm()
+                                    .on_click(cx.listener(move |this, _, _, cx| {
+                                        this.remove_phone_field(index, cx);
+                                    }))
+                                    .child("Remove"),
+                            )
+                    })),
+            )
+            .child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap_3()
+                    .child(
+                        div()
+                            .flex()
+                            .items_center()
+                            .justify_between()
+                            .child(div().text_sm().child("Addresses"))
+                            .child(
+                                div()
+                                    .id("add-address-field")
+                                    .px_3()
+                                    .py_2()
+                                    .rounded_md()
+                                    .border_1()
+                                    .border_color(rgb(theme.panel_border))
+                                    .text_sm()
+                                    .on_click(cx.listener(|this, _, _, cx| {
+                                        this.add_address_field(cx);
+                                    }))
+                                    .child("Add address"),
+                            ),
+                    )
+                    .children(editor.addresses.iter().enumerate().map(|(index, address)| {
+                        let label = address
+                            .original
+                            .label
+                            .as_deref()
+                            .filter(|label| !label.trim().is_empty())
+                            .map_or_else(
+                                || "Address".to_owned(),
+                                |label| format!("{label} address"),
+                            );
+                        div()
+                            .p_3()
+                            .rounded_md()
+                            .border_1()
+                            .border_color(rgb(theme.panel_border))
+                            .flex()
+                            .flex_col()
+                            .gap_2()
+                            .child(
+                                div()
+                                    .flex()
+                                    .items_center()
+                                    .justify_between()
+                                    .child(div().text_sm().child(label))
+                                    .child(
+                                        div()
+                                            .id(("remove-address-field", index as u64))
+                                            .px_3()
+                                            .py_2()
+                                            .rounded_md()
+                                            .border_1()
+                                            .border_color(rgb(theme.panel_border))
+                                            .text_sm()
+                                            .on_click(cx.listener(move |this, _, _, cx| {
+                                                this.remove_address_field(index, cx);
+                                            }))
+                                            .child("Remove"),
+                                    ),
+                            )
+                            .child(
+                                div()
+                                    .flex()
+                                    .gap_3()
+                                    .child(div().flex_1().child(Self::render_editor_field(
+                                        "Street".to_owned(),
+                                        address.street.clone(),
+                                    )))
+                                    .child(div().w(px(140.)).child(Self::render_editor_field(
+                                        "House number".to_owned(),
+                                        address.house_number.clone(),
+                                    ))),
+                            )
+                            .child(
+                                div()
+                                    .flex()
+                                    .gap_3()
+                                    .child(div().flex_1().child(Self::render_editor_field(
+                                        "Postal code".to_owned(),
+                                        address.postal_code.clone(),
+                                    )))
+                                    .child(div().flex_1().child(Self::render_editor_field(
+                                        "City".to_owned(),
+                                        address.city.clone(),
+                                    ))),
+                            )
+                            .child(Self::render_editor_field(
+                                "Country".to_owned(),
+                                address.country.clone(),
+                            ))
+                    })),
+            )
+            .child(Self::render_editor_field(
+                "Notes".to_owned(),
+                editor.notes.clone(),
+            ))
             .child(
                 div()
                     .flex()
@@ -768,10 +965,7 @@ impl AddressBookApp {
             )
     }
 
-    fn render_editor_field(
-        label: &'static str,
-        field: Entity<TextField>,
-    ) -> impl IntoElement + use<> {
+    fn render_editor_field(label: String, field: Entity<TextField>) -> impl IntoElement + use<> {
         div()
             .flex()
             .flex_col()
@@ -1430,9 +1624,65 @@ fn contact_card_name(fields: &ContactFields) -> String {
         .to_owned()
 }
 
+fn contact_card_details(fields: &ContactFields) -> Vec<String> {
+    let mut details = Vec::new();
+    for (kind, values) in [("Email", &fields.emails), ("Phone", &fields.phones)] {
+        for value in values.iter().filter(|value| !value.value.trim().is_empty()) {
+            let label = value
+                .label
+                .as_deref()
+                .filter(|label| !label.trim().is_empty())
+                .map_or_else(|| kind.to_owned(), |label| format!("{kind} ({label})"));
+            details.push(format!("{label}: {}", value.value.trim()));
+        }
+    }
+
+    for address in &fields.addresses {
+        let street = [address.street.as_deref(), address.house_number.as_deref()]
+            .into_iter()
+            .flatten()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .collect::<Vec<_>>()
+            .join(" ");
+        let locality = [address.postal_code.as_deref(), address.city.as_deref()]
+            .into_iter()
+            .flatten()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .collect::<Vec<_>>()
+            .join(" ");
+        let address_parts = [
+            address.po_box.as_deref(),
+            Some(street.as_str()),
+            address.extended_address.as_deref(),
+            Some(locality.as_str()),
+            address.region.as_deref(),
+            address.country.as_deref(),
+        ]
+        .into_iter()
+        .flatten()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .collect::<Vec<_>>();
+        if address_parts.is_empty() {
+            continue;
+        }
+
+        let label = address
+            .label
+            .as_deref()
+            .filter(|label| !label.trim().is_empty())
+            .map_or_else(|| "Address".to_owned(), |label| format!("{label} address"));
+        details.push(format!("{label}: {}", address_parts.join(", ")));
+    }
+    details
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use addresses_rs::database::{ContactName, LabeledValue, PostalAddress};
 
     #[test]
     fn contact_card_prefers_all_canonical_name_parts() {
@@ -1463,5 +1713,64 @@ mod tests {
         };
 
         assert_eq!(contact_card_name(&fields), "Ada Lovelace");
+    }
+
+    #[test]
+    fn contact_card_shows_all_emails_phones_and_structured_addresses() {
+        let fields = ContactFields {
+            emails: vec![
+                LabeledValue {
+                    label: Some("Home".to_owned()),
+                    value: "ada@home.example".to_owned(),
+                },
+                LabeledValue {
+                    label: Some("Work".to_owned()),
+                    value: "ada@work.example".to_owned(),
+                },
+            ],
+            phones: vec![
+                LabeledValue {
+                    label: Some("Mobile".to_owned()),
+                    value: "+1 555 0100".to_owned(),
+                },
+                LabeledValue {
+                    label: Some("Work".to_owned()),
+                    value: "+1 555 0199".to_owned(),
+                },
+            ],
+            addresses: vec![
+                PostalAddress {
+                    label: Some("Home".to_owned()),
+                    street: Some("Main Street".to_owned()),
+                    house_number: Some("42".to_owned()),
+                    postal_code: Some("12345".to_owned()),
+                    city: Some("Amsterdam".to_owned()),
+                    country: Some("Netherlands".to_owned()),
+                    ..PostalAddress::default()
+                },
+                PostalAddress {
+                    label: Some("Work".to_owned()),
+                    street: Some("Corporate Way".to_owned()),
+                    house_number: Some("8".to_owned()),
+                    postal_code: Some("2011".to_owned()),
+                    city: Some("Haarlem".to_owned()),
+                    country: Some("Netherlands".to_owned()),
+                    ..PostalAddress::default()
+                },
+            ],
+            ..ContactFields::default()
+        };
+
+        assert_eq!(
+            contact_card_details(&fields),
+            [
+                "Email (Home): ada@home.example",
+                "Email (Work): ada@work.example",
+                "Phone (Mobile): +1 555 0100",
+                "Phone (Work): +1 555 0199",
+                "Home address: Main Street 42, 12345 Amsterdam, Netherlands",
+                "Work address: Corporate Way 8, 2011 Haarlem, Netherlands",
+            ]
+        );
     }
 }

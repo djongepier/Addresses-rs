@@ -11,6 +11,7 @@
 <p align="center">
   <a href="https://doc.rust-lang.org/edition-guide/rust-2024/index.html"><img src="https://img.shields.io/badge/Rust-2024%20Edition-000000?logo=rust&amp;logoColor=white" alt="Rust 2024 Edition"></a>
   <img src="https://img.shields.io/badge/MSRV-1.89%2B-orange?logo=rust&amp;logoColor=white" alt="Minimum supported Rust version 1.89">
+  <a href="https://codecov.io/gh/djongepier/Addresses-rs"><img src="https://codecov.io/gh/djongepier/Addresses-rs/branch/master/graph/badge.svg" alt="Test coverage"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue.svg" alt="MIT License"></a>
   <a href="https://www.sqlite.org/"><img src="https://img.shields.io/badge/Storage-SQLite-003B57?logo=sqlite&amp;logoColor=white" alt="SQLite storage"></a>
 </p>
@@ -40,8 +41,9 @@ reviews and is responsible for accepted changes.
 - Manage address books, move selected contacts between books, and delete
   selected contacts. An address book can only be deleted while it is empty.
 - Add, list, search, and edit contacts. The editor supports display, given, and
-  family names, organization, primary email and phone, basic street/city/country
-  address fields, and notes.
+  family names, organization, multiple labeled email addresses and phone
+  numbers, and separate Home and Work addresses with street, house number,
+  postal code, city, and country fields.
 - Import standard English-header Google Contacts and Outlook CSV files with a
   preview and address-book selection. Common fields are mapped into the contact
   model, and unrecognized columns are preserved. UTF-8 and UTF-16 CSV files are
@@ -75,10 +77,12 @@ reviews and is responsible for accepted changes.
 ## Build downloads
 
 GitHub Actions builds release executables for Windows x86_64 and Linux x86_64
-on pushes, pull requests, and manual runs. Download the platform-specific
-artifact from the workflow run's **Artifacts** section. The Linux executable
+when a version tag such as `v0.5.0` is pushed. Download the platform-specific
+artifact from that workflow run's **Artifacts** section. The Linux executable
 requires the system libraries used by GPUI and is not a self-contained
-installer.
+installer. A separate workflow measures test coverage and uploads it to
+Codecov when the repository is enabled there and its upload token is configured
+as the GitHub Actions secret `CODECOV_TOKEN`.
 
 ## Screen layout
 
@@ -99,8 +103,9 @@ Implemented:
 - Create address books and add or edit contacts.
 - Manage address books, move selected contacts between books, and delete
   selected contacts. Address books must be empty before they can be deleted.
-- Edit display/given/family names, organization, primary email/phone, basic
-  postal address fields, and notes.
+- Edit display/given/family names, organization, multiple labeled email
+  addresses and phone numbers, separate Home and Work street, house number,
+  postal code, city, and country fields, and notes.
 - Import standard Google Contacts and Outlook CSV files with preview and
   address-book selection.
 

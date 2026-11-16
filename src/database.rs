@@ -86,6 +86,7 @@ pub struct PostalAddress {
     pub label: Option<String>,
     pub po_box: Option<String>,
     pub street: Option<String>,
+    pub house_number: Option<String>,
     pub extended_address: Option<String>,
     pub city: Option<String>,
     pub region: Option<String>,
@@ -531,6 +532,16 @@ fn contact_from_row(row: &Row<'_>) -> rusqlite::Result<Contact> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn older_postal_address_data_defaults_house_number() -> Result<()> {
+        let address: PostalAddress =
+            serde_json::from_str(r#"{"label":"Home","street":"Main Street"}"#)?;
+
+        assert_eq!(address.street.as_deref(), Some("Main Street"));
+        assert_eq!(address.house_number, None);
+        Ok(())
+    }
 
     #[test]
     fn creates_and_reopens_database_files() -> Result<()> {

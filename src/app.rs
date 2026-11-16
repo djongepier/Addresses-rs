@@ -73,16 +73,29 @@ struct PreparedDatabase {
 struct ContactEditor {
     original: Option<Contact>,
     address_book_id: i64,
+    next_dynamic_field_id: u64,
     name: Entity<TextField>,
     given_name: Entity<TextField>,
     family_name: Entity<TextField>,
     company: Entity<TextField>,
-    email: Entity<TextField>,
-    phone: Entity<TextField>,
+    emails: Vec<ContactValueEditor>,
+    phones: Vec<ContactValueEditor>,
+    addresses: Vec<ContactAddressEditor>,
+    notes: Entity<TextField>,
+}
+
+struct ContactValueEditor {
+    label: Option<String>,
+    field: Entity<TextField>,
+}
+
+struct ContactAddressEditor {
+    original: PostalAddress,
     street: Entity<TextField>,
+    house_number: Entity<TextField>,
+    postal_code: Entity<TextField>,
     city: Entity<TextField>,
     country: Entity<TextField>,
-    notes: Entity<TextField>,
 }
 
 pub(crate) struct AddressBookApp {
@@ -232,6 +245,73 @@ impl AddressBookApp {
         self.refresh_contacts(cx);
     }
 
+    fn new_contact_text_field(
+        cx: &mut Context<Self>,
+        id: String,
+        placeholder: &'static str,
+        value: Option<String>,
+    ) -> Entity<TextField> {
+        let value = value.unwrap_or_default();
+        cx.new(move |cx| TextField::new(cx, id, placeholder, value))
+    }
+
+    fn new_contact_value_editor(
+        value: Option<&LabeledValue>,
+        id: String,
+        placeholder: &'static str,
+        cx: &mut Context<Self>,
+    ) -> ContactValueEditor {
+        ContactValueEditor {
+            label: value.and_then(|value| value.label.clone()),
+            field: Self::new_contact_text_field(
+                cx,
+                id,
+                placeholder,
+                value.map(|value| value.value.clone()),
+            ),
+        }
+    }
+
+    fn new_contact_address_editor(
+        address: PostalAddress,
+        id: String,
+        cx: &mut Context<Self>,
+    ) -> ContactAddressEditor {
+        ContactAddressEditor {
+            street: Self::new_contact_text_field(
+                cx,
+                format!("{id}-street"),
+                "Street",
+                address.street.clone(),
+            ),
+            house_number: Self::new_contact_text_field(
+                cx,
+                format!("{id}-house-number"),
+                "House number",
+                address.house_number.clone(),
+            ),
+            postal_code: Self::new_contact_text_field(
+                cx,
+                format!("{id}-postal-code"),
+                "Postal code",
+                address.postal_code.clone(),
+            ),
+            city: Self::new_contact_text_field(
+                cx,
+                format!("{id}-city"),
+                "City",
+                address.city.clone(),
+            ),
+            country: Self::new_contact_text_field(
+                cx,
+                format!("{id}-country"),
+                "Country",
+                address.country.clone(),
+            ),
+            original: address,
+        }
+    }
+
     fn open_contact_editor(
         &mut self,
         contact: Option<Contact>,
@@ -257,33 +337,75 @@ impl AddressBookApp {
         let given_name = fields.name.given_name.clone().unwrap_or_default();
         let family_name = fields.name.family_name.clone().unwrap_or_default();
         let company = fields.organization.company.clone().unwrap_or_default();
-        let email = fields
-            .emails
-            .first()
-            .map_or_else(String::new, |value| value.value.clone());
-        let phone = fields
-            .phones
-            .first()
-            .map_or_else(String::new, |value| value.value.clone());
-        let street = fields
-            .addresses
-            .first()
-            .and_then(|address| address.street.clone())
-            .unwrap_or_default();
-        let city = fields
-            .addresses
-            .first()
-            .and_then(|address| address.city.clone())
-            .unwrap_or_default();
-        let country = fields
-            .addresses
-            .first()
-            .and_then(|address| address.country.clone())
-            .unwrap_or_default();
+        let emails = if fields.emails.is_empty() {
+            vec![Self::new_contact_value_editor(
+                None,
+                "contact-email-0".to_owned(),
+                "Email address",
+                cx,
+            )]
+        } else {
+            fields
+                .emails
+                .iter()
+                .enumerate()
+                .map(|(index, value)| {
+                    Self::new_contact_value_editor(
+                        Some(value),
+                        format!("contact-email-{index}"),
+                        "Email address",
+                        cx,
+                    )
+                })
+                .collect()
+        };
+        let phones = if fields.phones.is_empty() {
+            vec![Self::new_contact_value_editor(
+                None,
+                "contact-phone-0".to_owned(),
+                "Phone number",
+                cx,
+            )]
+        } else {
+            fields
+                .phones
+                .iter()
+                .enumerate()
+                .map(|(index, value)| {
+                    Self::new_contact_value_editor(
+                        Some(value),
+                        format!("contact-phone-{index}"),
+                        "Phone number",
+                        cx,
+                    )
+                })
+                .collect()
+        };
+        let mut addresses = fields.addresses.clone();
+        if !addresses.iter().any(|address| is_home_address(address)) {
+            addresses.push(PostalAddress {
+                label: Some("Home".to_owned()),
+                ..PostalAddress::default()
+            });
+        }
+        if !addresses.iter().any(|address| is_work_address(address)) {
+            addresses.push(PostalAddress {
+                label: Some("Work".to_owned()),
+                ..PostalAddress::default()
+            });
+        }
+        let addresses = addresses
+            .into_iter()
+            .enumerate()
+            .map(|(index, address)| {
+                Self::new_contact_address_editor(address, format!("contact-address-{index}"), cx)
+            })
+            .collect();
         let notes = fields.notes.clone().unwrap_or_default();
         self.editor = Some(ContactEditor {
             original: contact,
             address_book_id,
+            next_dynamic_field_id: 0,
             name: cx.new(move |cx| TextField::new(cx, "contact-name", "Display name", name)),
             given_name: cx
                 .new(move |cx| TextField::new(cx, "contact-given-name", "Given name", given_name)),
@@ -292,16 +414,103 @@ impl AddressBookApp {
             }),
             company: cx
                 .new(move |cx| TextField::new(cx, "contact-company", "Organization", company)),
-            email: cx.new(move |cx| TextField::new(cx, "contact-email", "Email", email)),
-            phone: cx.new(move |cx| TextField::new(cx, "contact-phone", "Phone", phone)),
-            street: cx.new(move |cx| TextField::new(cx, "contact-street", "Street", street)),
-            city: cx.new(move |cx| TextField::new(cx, "contact-city", "City", city)),
-            country: cx.new(move |cx| TextField::new(cx, "contact-country", "Country", country)),
+            emails,
+            phones,
+            addresses,
             notes: cx.new(move |cx| TextField::new(cx, "contact-notes", "Notes", notes)),
         });
         self.status_message = None;
         if let Some(editor) = &self.editor {
             editor.name.read(cx).focus(window);
+        }
+    }
+
+    fn add_email_field(&mut self, cx: &mut Context<Self>) {
+        let Some(editor) = self.editor.as_mut() else {
+            return;
+        };
+        let id = editor.next_dynamic_field_id;
+        editor.next_dynamic_field_id += 1;
+        editor.emails.push(Self::new_contact_value_editor(
+            None,
+            format!("contact-email-added-{id}"),
+            "Email address",
+            cx,
+        ));
+        cx.notify();
+    }
+
+    fn remove_email_field(&mut self, index: usize, cx: &mut Context<Self>) {
+        if let Some(editor) = self.editor.as_mut()
+            && index < editor.emails.len()
+        {
+            editor.emails.remove(index);
+            cx.notify();
+        }
+    }
+
+    fn add_phone_field(&mut self, cx: &mut Context<Self>) {
+        let Some(editor) = self.editor.as_mut() else {
+            return;
+        };
+        let id = editor.next_dynamic_field_id;
+        editor.next_dynamic_field_id += 1;
+        editor.phones.push(Self::new_contact_value_editor(
+            None,
+            format!("contact-phone-added-{id}"),
+            "Phone number",
+            cx,
+        ));
+        cx.notify();
+    }
+
+    fn remove_phone_field(&mut self, index: usize, cx: &mut Context<Self>) {
+        if let Some(editor) = self.editor.as_mut()
+            && index < editor.phones.len()
+        {
+            editor.phones.remove(index);
+            cx.notify();
+        }
+    }
+
+    fn add_address_field(&mut self, cx: &mut Context<Self>) {
+        let Some(editor) = self.editor.as_mut() else {
+            return;
+        };
+        let id = editor.next_dynamic_field_id;
+        editor.next_dynamic_field_id += 1;
+        let label = if !editor
+            .addresses
+            .iter()
+            .any(|address| is_home_address(&address.original))
+        {
+            "Home"
+        } else if !editor
+            .addresses
+            .iter()
+            .any(|address| is_work_address(&address.original))
+        {
+            "Work"
+        } else {
+            "Other"
+        };
+        editor.addresses.push(Self::new_contact_address_editor(
+            PostalAddress {
+                label: Some(label.to_owned()),
+                ..PostalAddress::default()
+            },
+            format!("contact-address-added-{id}"),
+            cx,
+        ));
+        cx.notify();
+    }
+
+    fn remove_address_field(&mut self, index: usize, cx: &mut Context<Self>) {
+        if let Some(editor) = self.editor.as_mut()
+            && index < editor.addresses.len()
+        {
+            editor.addresses.remove(index);
+            cx.notify();
         }
     }
 
@@ -318,31 +527,37 @@ impl AddressBookApp {
         fields.name.given_name = optional_field(editor.given_name.read(cx).content());
         fields.name.family_name = optional_field(editor.family_name.read(cx).content());
         fields.organization.company = optional_field(editor.company.read(cx).content());
-        update_primary_value(&mut fields.emails, editor.email.read(cx).content());
-        update_primary_value(&mut fields.phones, editor.phone.read(cx).content());
+        fields.emails = non_empty_labeled_values(editor.emails.iter().map(|value| {
+            (
+                value.label.clone(),
+                value.field.read(cx).content().to_owned(),
+            )
+        }));
+        fields.phones = non_empty_labeled_values(editor.phones.iter().map(|value| {
+            (
+                value.label.clone(),
+                value.field.read(cx).content().to_owned(),
+            )
+        }));
         if fields.display_name().trim().is_empty() {
             self.set_status("Enter a name or email address for this contact.", true);
             return;
         }
 
-        let street = optional_field(editor.street.read(cx).content());
-        let city = optional_field(editor.city.read(cx).content());
-        let country = optional_field(editor.country.read(cx).content());
-        if fields.addresses.is_empty() {
-            if street.is_some() || city.is_some() || country.is_some() {
-                fields.addresses.push(PostalAddress {
-                    street,
-                    city,
-                    country,
-                    ..PostalAddress::default()
-                });
-            }
-        } else {
-            let address = &mut fields.addresses[0];
-            address.street = street;
-            address.city = city;
-            address.country = country;
-        }
+        fields.addresses = editor
+            .addresses
+            .iter()
+            .filter_map(|address_editor| {
+                let mut address = address_editor.original.clone();
+                address.street = optional_field(address_editor.street.read(cx).content());
+                address.house_number =
+                    optional_field(address_editor.house_number.read(cx).content());
+                address.postal_code = optional_field(address_editor.postal_code.read(cx).content());
+                address.city = optional_field(address_editor.city.read(cx).content());
+                address.country = optional_field(address_editor.country.read(cx).content());
+                has_address_content(&address).then_some(address)
+            })
+            .collect();
         fields.notes = optional_field(editor.notes.read(cx).content());
 
         let original = editor.original.clone();
@@ -507,6 +722,46 @@ fn optional_field(value: &str) -> Option<String> {
     (!value.is_empty()).then(|| value.to_owned())
 }
 
+fn non_empty_labeled_values(
+    values: impl IntoIterator<Item = (Option<String>, String)>,
+) -> Vec<LabeledValue> {
+    values
+        .into_iter()
+        .filter_map(|(label, value)| {
+            optional_field(&value).map(|value| LabeledValue { label, value })
+        })
+        .collect()
+}
+
+fn is_home_address(address: &PostalAddress) -> bool {
+    address
+        .label
+        .as_deref()
+        .is_some_and(|label| label.eq_ignore_ascii_case("home"))
+}
+
+fn is_work_address(address: &PostalAddress) -> bool {
+    address.label.as_deref().is_some_and(|label| {
+        label.eq_ignore_ascii_case("work") || label.eq_ignore_ascii_case("business")
+    })
+}
+
+fn has_address_content(address: &PostalAddress) -> bool {
+    [
+        address.po_box.as_ref(),
+        address.street.as_ref(),
+        address.house_number.as_ref(),
+        address.extended_address.as_ref(),
+        address.city.as_ref(),
+        address.region.as_ref(),
+        address.postal_code.as_ref(),
+        address.country.as_ref(),
+    ]
+    .into_iter()
+    .flatten()
+    .any(|value| !value.trim().is_empty())
+}
+
 fn address_book_name_error(address_books: &[AddressBook], name: &str) -> Option<&'static str> {
     let name = name.trim();
     if name.is_empty() {
@@ -518,44 +773,23 @@ fn address_book_name_error(address_books: &[AddressBook], name: &str) -> Option<
     }
 }
 
-fn update_primary_value(values: &mut Vec<LabeledValue>, value: &str) {
-    match (values.first_mut(), optional_field(value)) {
-        (Some(existing), Some(value)) => existing.value = value,
-        (Some(_), None) => {
-            values.remove(0);
-        }
-        (None, Some(value)) => values.push(LabeledValue { label: None, value }),
-        (None, None) => {}
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn editing_primary_value_preserves_secondary_values_and_labels() {
-        let mut values = vec![
-            LabeledValue {
-                label: Some("Work".into()),
-                value: "old@example.com".into(),
-            },
-            LabeledValue {
-                label: Some("Home".into()),
-                value: "home@example.com".into(),
-            },
-        ];
-
-        update_primary_value(&mut values, "new@example.com");
+    fn repeatable_values_preserve_labels_and_ignore_blank_fields() {
+        let values = non_empty_labeled_values([
+            (Some("Work".into()), " updated@example.com ".into()),
+            (Some("Home".into()), "  ".into()),
+            (None, "other@example.com".into()),
+        ]);
 
         assert_eq!(values.len(), 2);
         assert_eq!(values[0].label.as_deref(), Some("Work"));
-        assert_eq!(values[0].value, "new@example.com");
-        assert_eq!(values[1].value, "home@example.com");
-
-        update_primary_value(&mut values, "");
-        assert_eq!(values.len(), 1);
-        assert_eq!(values[0].value, "home@example.com");
+        assert_eq!(values[0].value, "updated@example.com");
+        assert_eq!(values[1].label, None);
+        assert_eq!(values[1].value, "other@example.com");
     }
 
     #[test]

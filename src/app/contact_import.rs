@@ -556,6 +556,7 @@ impl CsvColumns {
                     street: self
                         .take_group_value(record, group, &["street"])
                         .or_else(|| self.take_group_value(record, group, &["formatted"])),
+                    house_number: self.take_group_value(record, group, &["housenumber"]),
                     extended_address: self.take_group_value(record, group, &["extendedaddress"]),
                     city: self.take_group_value(record, group, &["city"]),
                     region: self.take_group_value(record, group, &["region"]),
@@ -606,6 +607,7 @@ impl CsvColumns {
             label: Some(label.to_owned()),
             po_box: self.take_prefixed(record, prefix, &["pobox"]),
             street: (!street_parts.is_empty()).then(|| street_parts.join("\n")),
+            house_number: self.take_prefixed(record, prefix, &["housenumber", "streetnumber"]),
             extended_address: self.take_prefixed(record, prefix, &["extendedaddress"]),
             city: self.take_prefixed(record, prefix, &["city"]),
             region: self.take_prefixed(record, prefix, &["state", "province", "region"]),
@@ -812,6 +814,7 @@ fn map_outlook_contact(columns: &mut CsvColumns, record: &StringRecord) -> Conta
 fn address_is_empty(address: &PostalAddress) -> bool {
     address.po_box.is_none()
         && address.street.is_none()
+        && address.house_number.is_none()
         && address.extended_address.is_none()
         && address.city.is_none()
         && address.region.is_none()
@@ -828,9 +831,10 @@ mod tests {
         let csv = concat!(
             "Name,Given Name,Family Name,E-mail 1 - Type,E-mail 1 - Value,",
             "E-mail 2 - Type,E-mail 2 - Value,Phone 1 - Type,Phone 1 - Value,",
-            "Address 1 - Street,Address 1 - City,Custom Column\n",
+            "Address 1 - Street,Address 1 - House Number,Address 1 - Postal Code,",
+            "Address 1 - City,Custom Column\n",
             "\"Ada Lovelace\",Ada,Lovelace,Work,ada@example.com,Home,",
-            "ada@home.example,Mobile,+441234,\"1, Engine Road\",London,",
+            "ada@home.example,Mobile,+441234,Engine Road,42,12345,London,",
             "\"kept as extra\"\n"
         );
         let parsed = parse_contact_csv_bytes(csv.as_bytes()).unwrap();
@@ -841,10 +845,9 @@ mod tests {
         assert_eq!(contact.display_name(), "Ada Lovelace");
         assert_eq!(contact.emails.len(), 2);
         assert_eq!(contact.emails[1].label.as_deref(), Some("Home"));
-        assert_eq!(
-            contact.addresses[0].street.as_deref(),
-            Some("1, Engine Road")
-        );
+        assert_eq!(contact.addresses[0].street.as_deref(), Some("Engine Road"));
+        assert_eq!(contact.addresses[0].house_number.as_deref(), Some("42"));
+        assert_eq!(contact.addresses[0].postal_code.as_deref(), Some("12345"));
         assert_eq!(contact.addresses[0].city.as_deref(), Some("London"));
         assert_eq!(
             contact.extra_fields["Custom Column"],
@@ -857,9 +860,10 @@ mod tests {
     fn imports_outlook_contacts_from_semicolon_delimited_utf16_csv() {
         let text = concat!(
             "First Name;Last Name;E-mail Address;E-mail 2 Address;Mobile Phone;",
-            "Business Street;Business City;Business Country/Region;Categories;Notes\n",
+            "Business Street;Business Street Number;Business Postal Code;",
+            "Business City;Business Country/Region;Categories;Notes\n",
             "Grace;Hopper;grace@example.com;grace@navy.example;+12025550123;",
-            "1 Navy Way;Arlington;United States;Navy;Compiler pioneer\n"
+            "Navy Way;1;22203;Arlington;United States;Navy;Compiler pioneer\n"
         );
         let mut bytes = vec![0xFF, 0xFE];
         bytes.extend(text.encode_utf16().flat_map(u16::to_le_bytes));
@@ -870,6 +874,9 @@ mod tests {
         assert_eq!(contact.display_name(), "Grace Hopper");
         assert_eq!(contact.emails.len(), 2);
         assert_eq!(contact.phones[0].label.as_deref(), Some("Mobile"));
+        assert_eq!(contact.addresses[0].street.as_deref(), Some("Navy Way"));
+        assert_eq!(contact.addresses[0].house_number.as_deref(), Some("1"));
+        assert_eq!(contact.addresses[0].postal_code.as_deref(), Some("22203"));
         assert_eq!(
             contact.addresses[0].country.as_deref(),
             Some("United States")
