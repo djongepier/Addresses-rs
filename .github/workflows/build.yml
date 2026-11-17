@@ -1,4 +1,4 @@
-name: Build executables
+name: Build Windows executable
 
 on:
   push:
@@ -10,22 +10,9 @@ permissions:
 
 jobs:
   build:
-    name: Build (${{ matrix.platform }})
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - os: ubuntu-24.04
-            platform: linux-x86_64
-            artifact: addresses-linux-x86_64
-            binary: target/release/addresses_rs
-            archive: addresses-linux-x86_64.zip
-          - os: windows-latest
-            platform: windows-x86_64
-            artifact: addresses-windows-x86_64
-            binary: target/release/addresses_rs.exe
-            archive: addresses-windows-x86_64.zip
+    runs-on: windows-latest
+    permissions:
+      contents: write
 
     steps:
       - name: Check out source
@@ -34,58 +21,15 @@ jobs:
       - name: Install stable Rust
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Install Linux build dependencies
-        if: runner.os == 'Linux'
-        run: |
-          sudo apt-get update
-          sudo apt-get install --yes \
-            libfontconfig1-dev \
-            libwayland-dev \
-            libx11-dev \
-            libx11-xcb-dev \
-            libxcb-render0-dev \
-            libxcb-shape0-dev \
-            libxcb-xfixes0-dev \
-            libxcb-xkb-dev \
-            libxkbcommon-dev \
-            libxkbcommon-x11-dev \
-            zip
-
       - name: Build release executable
         run: cargo build --locked --release
 
-      - name: Package Linux executable
-        if: runner.os == 'Linux'
-        run: zip -j "${{ matrix.archive }}" "${{ matrix.binary }}"
-
       - name: Package Windows executable
-        if: runner.os == 'Windows'
-        run: Compress-Archive -LiteralPath "${{ matrix.binary }}" -DestinationPath "${{ matrix.archive }}"
+        run: Compress-Archive -LiteralPath "target/release/addresses_rs.exe" -DestinationPath "addresses-windows-x86_64.zip"
 
-      - name: Upload package for release
-        uses: actions/upload-artifact@v4
-        with:
-          name: ${{ matrix.artifact }}
-          path: ${{ matrix.archive }}
-          if-no-files-found: error
-
-  release:
-    name: Publish release assets
-    needs: build
-    runs-on: ubuntu-24.04
-    permissions:
-      contents: write
-    steps:
-      - name: Download platform packages
-        uses: actions/download-artifact@v4
-        with:
-          path: release-assets
-          pattern: addresses-*
-          merge-multiple: true
-
-      - name: Publish packages on the tagged release
+      - name: Publish Windows package on the tagged release
         uses: softprops/action-gh-release@v2
         with:
-          files: release-assets/*.zip
+          files: addresses-windows-x86_64.zip
           fail_on_unmatched_files: true
           overwrite_files: true

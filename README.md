@@ -11,7 +11,6 @@
 <p align="center">
   <a href="https://doc.rust-lang.org/edition-guide/rust-2024/index.html"><img src="https://img.shields.io/badge/Rust-2024%20Edition-000000?logo=rust&amp;logoColor=white" alt="Rust 2024 Edition"></a>
   <img src="https://img.shields.io/badge/MSRV-1.89%2B-orange?logo=rust&amp;logoColor=white" alt="Minimum supported Rust version 1.89">
-  <a href="https://codecov.io/gh/djongepier/Addresses-rs"><img src="https://codecov.io/gh/djongepier/Addresses-rs/branch/master/graph/badge.svg" alt="Test coverage"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue.svg" alt="MIT License"></a>
   <a href="https://www.sqlite.org/"><img src="https://img.shields.io/badge/Storage-SQLite-003B57?logo=sqlite&amp;logoColor=white" alt="SQLite storage"></a>
 </p>
@@ -80,14 +79,15 @@ reviews and is responsible for accepted changes.
 
 ## Build downloads
 
-GitHub Actions builds release executables for Windows x86_64 and Linux x86_64
+GitHub Actions currently builds release executables for Windows x86_64 only
 when a version tag such as `v0.5.0` is pushed. Each build creates or updates the
-tagged GitHub Release and attaches `addresses-windows-x86_64.zip` and
-`addresses-linux-x86_64.zip`. Download the matching archive from the release's
-**Assets** section. The Linux executable requires the system libraries used by
-GPUI and is not a self-contained installer. A separate workflow measures test
-coverage and uploads it to Codecov when the repository is enabled there and its
-upload token is configured as the GitHub Actions secret `CODECOV_TOKEN`.
+tagged GitHub Release and attaches `addresses-windows-x86_64.zip`; download it
+from the release's **Assets** section.
+
+Linux release builds are paused because the Ubuntu 24.04 build failed compiling
+`xattr` 0.2.3: it references `libc::ENOATTR`, which is not defined for that
+Linux target. See [the failed Linux build](https://github.com/djongepier/Addresses-rs/actions/runs/43850105167)
+for the compiler error.
 
 ## Screen layout
 
