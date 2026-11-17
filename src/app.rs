@@ -13,6 +13,7 @@ use gpui::{AppContext as _, Context, Entity, Pixels, ScrollHandle, Window};
 
 use crate::text_field::TextField;
 
+mod contact_export;
 mod contact_import;
 mod database_workflow;
 mod duplicate_matching;

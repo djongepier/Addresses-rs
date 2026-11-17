@@ -49,6 +49,8 @@ reviews and is responsible for accepted changes.
   model, and unrecognized columns are preserved. UTF-8 and UTF-16 CSV files are
   supported. Imports are not automatically skipped or merged when they match
   existing contacts.
+- Export selected contacts as Google Contacts-compatible CSV or structured
+  JSON, including their address-book names and supported contact fields.
 - Review likely duplicate pairs across all address books. Matching checks
   shared email addresses or phone numbers, exact names, and similar names with
   a shared organization or postal address. Results are suggestions only;
@@ -60,9 +62,8 @@ reviews and is responsible for accepted changes.
 
 ## Planned
 
-- Export contacts to CSV or JSON.
 - Detect likely duplicates during import and provide merge choices.
-- Select multiple contacts for export or printing.
+- Print selected contacts to PDF.
 - Create, save, and edit address-label layouts and print them to PDF, including
   A4 dimensions, metric layout options, and common label formats. The Print
   labels screen is currently a placeholder.
@@ -115,11 +116,13 @@ Implemented:
   postal code, city, and country fields, and notes.
 - Import standard Google Contacts and Outlook CSV files with preview and
   address-book selection.
+- Export selected contacts as Google Contacts-compatible CSV or structured
+  JSON from the contact bulk actions.
 - Review potential duplicate contacts across all address books and edit either
   contact without making automatic changes.
 
 Planned:
-- Export selected contacts to CSV or print them to PDF.
+- Print selected contacts to PDF.
 
 ### Print labels
 

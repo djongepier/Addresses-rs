@@ -292,7 +292,7 @@ fn parse_contact_csv(path: &Path) -> Result<ParsedContactImport> {
     parse_contact_csv_bytes(&bytes).with_context(|| format!("Could not import {}", path.display()))
 }
 
-fn parse_contact_csv_bytes(bytes: &[u8]) -> Result<ParsedContactImport> {
+pub(super) fn parse_contact_csv_bytes(bytes: &[u8]) -> Result<ParsedContactImport> {
     let contents = decode_csv(bytes)?;
     let delimiter = detect_delimiter(&contents);
     let mut reader = csv::ReaderBuilder::new()

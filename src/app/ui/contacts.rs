@@ -6,6 +6,7 @@ use addresses_rs::database::{AddressBook, Contact, ContactFields};
 use anyhow::Result;
 use gpui::{Context, Entity, div, prelude::*, px, rgb};
 
+use super::super::contact_export::ExportFormat;
 use super::super::duplicate_matching::{DuplicateMatch, find_duplicate_matches};
 use super::{AddressBookApp, Theme};
 use crate::text_field::TextField;
@@ -1366,6 +1367,36 @@ impl AddressBookApp {
                                     .child("Move to…"),
                             )
                         })
+                        .child(
+                            div()
+                                .id("export-selected-contacts-csv")
+                                .px_3()
+                                .py_2()
+                                .rounded_md()
+                                .border_1()
+                                .border_color(rgb(theme.panel_border))
+                                .text_sm()
+                                .when(self.is_loading, |this| this.opacity(0.6))
+                                .on_click(cx.listener(|this, _, _, cx| {
+                                    this.prompt_export_contacts(ExportFormat::Csv, cx);
+                                }))
+                                .child("Export CSV"),
+                        )
+                        .child(
+                            div()
+                                .id("export-selected-contacts-json")
+                                .px_3()
+                                .py_2()
+                                .rounded_md()
+                                .border_1()
+                                .border_color(rgb(theme.panel_border))
+                                .text_sm()
+                                .when(self.is_loading, |this| this.opacity(0.6))
+                                .on_click(cx.listener(|this, _, _, cx| {
+                                    this.prompt_export_contacts(ExportFormat::Json, cx);
+                                }))
+                                .child("Export JSON"),
+                        )
                         .when(!all_visible_contacts_selected, |this| {
                             this.child(
                                 div()
