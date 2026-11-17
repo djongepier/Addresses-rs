@@ -14,7 +14,7 @@
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue.svg" alt="MIT License"></a>
   <a href="https://www.sqlite.org/"><img src="https://img.shields.io/badge/Storage-SQLite-003B57?logo=sqlite&amp;logoColor=white" alt="SQLite storage"></a>
 </p>
-[![Build Windows executable](https://github.com/djongepier/Addresses-rs/actions/workflows/build.yml/badge.svg)](https://github.com/djongepier/Addresses-rs/actions/workflows/build.yml)
+
 
 ## About
 
